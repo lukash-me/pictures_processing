@@ -1,0 +1,14 @@
+body {
+  background: linear-gradient(to right, #141e30, #243b55);
+
+  margin: 0;
+  display: flex;
+
+  padding-left: 150px;
+  padding-top: 70px;
+}
+
+#app {
+  margin: 0;
+  padding: 0;
+}
