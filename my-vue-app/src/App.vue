@@ -7,17 +7,17 @@
   <div class="menu">
     <ul>
       <li>
-        <div class="icon">
+        <div class="menu-icon">
 
         </div>
       </li>
       <li>
-        <div class="icon">
+        <div class="menu-icon">
           
         </div>
       </li>
       <li>
-        <div class="icon">
+        <div class="menu-icon">
           
         </div>
       </li>
@@ -26,11 +26,30 @@
   
   <div class="toolbar">
     <ul>
-        <li>выделить</li>
-        <li>скопировать</li>
-        <li>вставить</li>
+        <li><div class="toolbar-icon"></div></li>
+        <li><div class="toolbar-icon"></div></li>
+        <li><div class="toolbar-icon"></div></li>
     </ul>
   </div>
+
+
+  <div class="container">
+    <div class="first-image-container">
+      <h1>Исходное изображение</h1>
+      <div class="image">
+        <img src="" alt="">
+        <div class="statement"></div>
+      </div>
+    </div>
+    <div class="second-image-container">
+      <h1>Итоговое изображение</h1>
+      <div class="image">
+        <img src="" alt="">
+        <div class="statement"></div>
+      </div>
+    </div>
+  </div>
+
 
 </template>
 
@@ -84,6 +103,8 @@
   display: flex;
   flex-direction: column;
 
+  align-items: center;
+
   top: 70px;
   left: 0;
 
@@ -99,11 +120,101 @@
   z-index: 5;
 }
 
-.icon {
+.toolbar ul {
+  margin-top: 10px;
+
+  margin-left: 10px;
+  display: flex;
+  flex-direction: column;
+
+  gap: 10px;
+}
+
+.menu-icon {
   width: 50px;
   height: 50px;
 
   background-color: #000;
+}
+
+.toolbar-icon {
+  width: 50px;
+  height: 50px;
+
+  background-color: #000;
+}
+
+.container {
+  width: 90vw;
+  height: 90vh;
+
+  padding: 50px;
+
+  display: flex;
+  flex-direction: row;
+  
+  border: 1px solid red;
+
+  justify-content: space-between;
+}
+
+.first-image-container {
+
+  width: 680px;
+  height: 700px;
+
+  display: flex;
+  flex-direction: column;
+
+  border: 1px solid green;
+
+  align-items: center;
+
+}
+
+.second-image-container {
+
+  width: 680px;
+  height: 700px;
+
+  display: flex;
+  flex-direction: column;
+
+  border: 1px solid green;
+
+  align-items: center;
+  
+}
+
+.image {
+
+  width: 100%;
+  height: 100%;
+
+  border: 1px solid red;
+
+  display: flex;
+  flex-direction: column;
+
+  position: relative;
+}
+
+.image .statement {
+
+  position: absolute;
+
+  top: 85%;
+  width: 100%;
+  height: 15%;
+
+  border: 1px solid yellow;
+}
+
+.container h1 {
+  margin-top: 10px;
+  margin-bottom: 20px;
+
+  color: #fff;
 }
 
 </style>
