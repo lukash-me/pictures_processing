@@ -8,17 +8,18 @@
     <ul>
       <li>
         <div class="menu-icon">
-
+          <img src="/icon-step-back.png" alt="" title="Шаг назад">
         </div>
       </li>
       <li>
         <div class="menu-icon">
+          <img src="/icon-save-img.png" alt="" title="Сохранить изображение">
           
         </div>
       </li>
       <li>
         <div class="menu-icon">
-          
+          <img src="/icon-load-img.png" alt="" title="Загрузить изображение">
         </div>
       </li>
     </ul>
@@ -26,9 +27,15 @@
   
   <div class="toolbar">
     <ul>
-        <li><div class="toolbar-icon"></div></li>
-        <li><div class="toolbar-icon"></div></li>
-        <li><div class="toolbar-icon"></div></li>
+        <li><div class="toolbar-icon">
+          <img src="/icon-select-area.png" alt="" title="Выделить область">
+        </div></li>
+        <li><div class="toolbar-icon">
+          <img src="/icon-copy.png" alt="" title="Скопировать">
+        </div></li>
+        <li><div class="toolbar-icon">
+          <img src="/icon-paste.png" alt="" title="Вставить">
+        </div></li>
     </ul>
   </div>
 
@@ -87,6 +94,8 @@
   background: #fff;
 
   z-index: 10;
+
+  box-shadow: 0px 4px 8px black;
 }
 
 .menu ul {
@@ -102,8 +111,7 @@
 
   display: flex;
   flex-direction: column;
-
-  align-items: center;
+  padding-left: 10px;
 
   top: 70px;
   left: 0;
@@ -117,11 +125,13 @@
   color: #fff;
   background: #5c5c5c;
 
+  box-shadow: 4px 0px 12px rgba(0, 0, 0, 0.47);
+
   z-index: 5;
 }
 
 .toolbar ul {
-  margin-top: 10px;
+  margin-top: 20px;
 
   margin-left: 10px;
   display: flex;
@@ -134,14 +144,32 @@
   width: 50px;
   height: 50px;
 
-  background-color: #000;
+  border: 1px solid #000000;
+  border-radius: 4px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.menu-icon img, .toolbar-icon img{
+  width: 96%;
+  height: 96%;
+
+  overflow: hidden;
 }
 
 .toolbar-icon {
   width: 50px;
   height: 50px;
 
-  background-color: #000;
+  background-color: #fff;
+  border: 1px solid #000000;
+  border-radius: 4px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .container {
@@ -152,8 +180,6 @@
 
   display: flex;
   flex-direction: row;
-  
-  border: 1px solid red;
 
   justify-content: space-between;
 }
@@ -165,8 +191,6 @@
 
   display: flex;
   flex-direction: column;
-
-  border: 1px solid green;
 
   align-items: center;
 
@@ -180,10 +204,7 @@
   display: flex;
   flex-direction: column;
 
-  border: 1px solid green;
-
-  align-items: center;
-  
+  align-items: center; 
 }
 
 .image {
@@ -191,7 +212,10 @@
   width: 100%;
   height: 100%;
 
-  border: 1px solid red;
+  border: 4px solid rgb(0, 0, 0);
+  border-radius: 12px;
+
+  background-color: #b1b1b1;
 
   display: flex;
   flex-direction: column;
@@ -207,7 +231,10 @@
   width: 100%;
   height: 15%;
 
-  border: 1px solid yellow;
+  border: 2px solid rgb(0, 0, 0);
+  border-radius: 8px;
+
+  background-color: rgb(150, 150, 150);
 }
 
 .container h1 {
