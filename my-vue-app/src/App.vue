@@ -1,5 +1,33 @@
 <script>
 
+  export default{
+
+    data: () => ({  
+      fileBlob: null,
+      fileName: null,
+      fileType: null,
+      imageSrc: null
+    }),
+
+    methods: {
+
+      onFileChange(event) {
+        const file = event.target.files[0]; // Получаем файл
+        if (!file) return;
+
+        this.fileBlob = file; // Сохраняем файл в переменную
+        this.fileName = file.name; // Запоминаем имя файла
+        this.fileType = file.type; // Запоминаем формат (MIME type)
+        this.imageSrc = URL.createObjectURL(file);
+    },
+
+      triggerImgLoad() {
+        this.$refs.fileInput.click();
+      },
+
+    }
+  };
+
 </script>
 
 <template>
@@ -14,12 +42,12 @@
       <li>
         <div class="menu-icon">
           <img src="/icon-save-img.png" alt="" title="Сохранить изображение">
-          
         </div>
       </li>
       <li>
-        <div class="menu-icon">
+        <div class="menu-icon" @click="triggerImgLoad">
           <img src="/icon-load-img.png" alt="" title="Загрузить изображение">
+          <input type="file" @change="onFileChange" ref="fileInput" accept="*" style="display: none;">
         </div>
       </li>
     </ul>
@@ -44,7 +72,7 @@
     <div class="first-image-container">
       <h1>Исходное изображение</h1>
       <div class="image">
-        <img src="" alt="">
+        <img v-if="imageSrc" :src="imageSrc" alt="">
         <div class="statement"></div>
       </div>
     </div>
@@ -211,16 +239,25 @@
 
   width: 100%;
   height: 100%;
-
+  
   border: 4px solid rgb(0, 0, 0);
   border-radius: 12px;
 
   background-color: #b1b1b1;
 
+  overflow: hidden;
+
   display: flex;
   flex-direction: column;
 
   position: relative;
+}
+
+.image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  
 }
 
 .image .statement {
@@ -231,10 +268,10 @@
   width: 100%;
   height: 15%;
 
-  border: 2px solid rgb(0, 0, 0);
+  border: 2px solid rgba(0, 0, 0, 0.505);
   border-radius: 8px;
 
-  background-color: rgb(150, 150, 150);
+  background-color: rgba(150, 150, 150, 0.514);
 }
 
 .container h1 {
