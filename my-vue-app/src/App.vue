@@ -6,7 +6,9 @@
       fileBlob: null,
       fileName: null,
       fileType: null,
-      imageSrc: null
+      imageSrc: null,
+      startCropCoords: null,
+      endCropCoords: null,
     }),
 
     methods: {
@@ -25,6 +27,35 @@
         this.$refs.fileInput.click();
       },
 
+      startCrop(event) {
+        event.preventDefault();
+        this.startCropCoords = [event.offsetX, event.offsetY];
+
+        document.addEventListener("mousemove", this.moveCrop);
+        document.addEventListener("mouseup", this.stopCrop);
+      },
+
+      moveCrop(event){
+
+        console.log("x", event.offsetX, "y", event.offsetY);
+      },
+
+      stopCrop(event){
+
+        this.endCropCoords = [event.offsetX, event.offsetY];
+        document.removeEventListener("mousemove", this.moveCrop);
+      },
+    },
+
+    computed: {
+      cropBoxStyle() {
+        return {
+          left: `${this.startCropCoords[0]}px`,
+          top: `${this.startCropCoords[1]}px`,
+          width: `${this.endCropCoords[0] - this.startCropCoords[0]}px`,
+          height: `${this.endCropCoords[1] - this.startCropCoords[1]}px`,
+        };
+      }
     }
   };
 
@@ -72,14 +103,15 @@
     <div class="first-image-container">
       <h1>Исходное изображение</h1>
       <div class="image">
-        <img v-if="imageSrc" :src="imageSrc" alt="">
+        <img v-if="imageSrc" @mousedown="startCrop" :src="imageSrc" alt="" draggable="false">
+        <div class="crop-box" :style="cropBoxStyle"></div>
         <div class="statement"></div>
       </div>
     </div>
     <div class="second-image-container">
       <h1>Итоговое изображение</h1>
       <div class="image">
-        <img src="" alt="">
+        <img src="" alt="" draggable="false">
         <div class="statement"></div>
       </div>
     </div>
@@ -183,6 +215,7 @@
 .menu-icon img, .toolbar-icon img{
   width: 96%;
   height: 96%;
+  user-select: none;
 
   overflow: hidden;
 }
@@ -221,7 +254,6 @@
   flex-direction: column;
 
   align-items: center;
-
 }
 
 .second-image-container {
@@ -257,7 +289,6 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  
 }
 
 .image .statement {
@@ -279,6 +310,14 @@
   margin-bottom: 20px;
 
   color: #fff;
+}
+
+.crop-box {
+  position: absolute;
+  border: 2px solid rgba(0, 0, 0, 0.5);
+  background-color: rgba(255, 255, 255, 0.5);
+  cursor: move;
+  z-index: 10;
 }
 
 </style>
