@@ -1,62 +1,1016 @@
 <script>
+  import { ref } from 'vue'
 
-  export default{
+  export default{  
 
     data: () => ({  
+      chartRef: ref(null),
+      chartInstance: null,
       fileBlob: null,
       fileName: null,
       fileType: null,
       imageSrc: null,
-      startCropCoords: null,
-      endCropCoords: null,
+      imageResultSrc: null,
+      cropCoords: null,
+      cropRect: null,
+      isCropping: ref(false),
+      isStatementSource: ref(false),
+      isStatementResult: ref(false),
+
+      sourceHistogramsOpen: ref(false),
+      resultHistogramsOpen: ref(false),
+
+      //Для гистограмм
+      redSourceCanvas: ref(null),
+      greenSourceCanvas: ref(null),
+      blueSourceCanvas: ref(null),
+      intSourceCanvas: ref(null),
+
+      //Для бинаризации
+
+      isBinary: ref(false),
+      firstColor: ref('#000000'),
+      secondColor: ref('#ffffff'),
+      thresholdFirst: ref(50),
+
+      // Для изменения яркости
+      
+      isChangeBrightness: ref(false),
+      brightness: ref(50),
+      contrast: ref(1),
+
+      //Само изображение для обработки
+      resultImagesStack: [],
+      resultImage: null,
+      sourceImage: null,
+
+      //Для профиля
+
+      lineCoords: [null, null, null, null],
+      dxdy: [null, null],
+
+      sourceProfileLineOn: ref(false),
+      sourceProfileOpen: ref(false),
+      sourceDrawProfileLineOpen: ref(false),
+
+      resultProfileLineOn: ref(false),
+      resultProfileOpen: ref(false),
+      resultDrawProfileLineOpen: ref(false),
+
+      // Шумы
+
+      isNoiseOpen: ref(false),
+      noiseProbability: ref(0.1),
+
+      //
+
+      RGB: [0,0,0],
+      cursorCoords: [0,0],
+      imgSize: [1,1],
     }),
 
     methods: {
 
-      onFileChange(event) {
-        const file = event.target.files[0]; // Получаем файл
+      openDrawProfileLine(imageStage) {
+
+        if (imageStage=='source'){
+
+          if (this.sourceProfileOpen) {
+            this.sourceProfileOpen = false;
+          }
+
+          this.sourceHistogramsOpen = false;
+          this.sourceDrawProfileLineOpen = true;
+          this.sourceProfileLineOn = true;
+        }
+
+        else if(imageStage=='result'){
+
+          if (this.resultProfileOpen) {
+            this.resultProfileOpen = false;
+          }
+
+          this.resultHistogramsOpen = false;
+          this.resultDrawProfileLineOpen = true;
+          this.resultProfileLineOn = true;
+        }
+      },
+
+      profileProcess(imageStage){
+
+        let canvas, ctx;
+
+        if (imageStage == "result"){
+
+          this.resultDrawProfileLineOpen = false;
+          this.resultProfileOpen = true;
+
+          ({ canvas, ctx } = this.makeCanvas('result'));
+          ctx.drawImage(this.resultImage, 0, 0);
+
+          const pixels = this.getPixelsOnLine(ctx);
+
+          this.$nextTick(() => {
+          const canvas = this.$refs.resultProfileCanvas;
+          this.drawProfile(canvas, this.$refs.resultProfileCanvas.getContext('2d'), pixels);
+        });
+        }
+
+        else if (imageStage == "source"){
+
+          this.sourceDrawProfileLineOpen = false;
+          this.sourceProfileOpen = true;
+
+          ({ canvas, ctx } = this.makeCanvas('source'));
+          ctx.drawImage(this.sourceImage, 0, 0);
+
+          const pixels = this.getPixelsOnLine(ctx);
+
+          this.$nextTick(() => {
+          const canvas = this.$refs.sourceProfileCanvas;
+          this.drawProfile(canvas, this.$refs.sourceProfileCanvas.getContext('2d'), pixels);
+        });
+        }
+      },
+
+      drawProfile(canvas, ctx, data){
+
+        const r = data.map(d => d.r);
+        const g = data.map(d => d.g);
+        const b = data.map(d => d.b);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const padding = 40;
+        const height = 255;
+        const width = 700;
+        const steps = 5;
+        const maxValue = 255;
+
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        //Y
+        ctx.beginPath();
+        ctx.moveTo(padding, 0);
+        ctx.lineTo(padding, height);
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+
+        for (let i = 250; i >=0; i-=50) {
+          ctx.fillText(i.toString(), padding - 5, 250-i);
+        }
+
+        //X
+        ctx.beginPath();
+        ctx.moveTo(padding, height);
+        ctx.lineTo(width, height);
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+
+        ctx.textBaseline = 'top';
+
+        for (let i = 0; i<=4; i++) {
+          ctx.fillText(i * 25, width/4*i, 255);
+        }
+
+        this.drawChannel(ctx, r, 'red', padding);
+        this.drawChannel(ctx, g, 'green', padding);
+        this.drawChannel(ctx, b, 'blue', padding);
+      },
+
+      drawChannel(ctx, data, color, padding){
+        ctx.beginPath();
+        ctx.strokeStyle=color;
+
+        ctx.moveTo(padding, 255-data[0]);
+
+        for (let i=1; i<data.length; i++){
+          const x = (i / (data.length - 1)) * 700;
+          ctx.lineTo(x+padding, 255-data[i]);
+        }
+
+        ctx.stroke();
+      },
+
+      getPixelsOnLine(ctx){
+
+        const pixels = [];
+
+        const dx = Math.abs(this.lineCoords[2]-this.lineCoords[0]);
+        const dy = -Math.abs(this.lineCoords[3]-this.lineCoords[1]);
+        const sx = this.lineCoords[0] < this.lineCoords[2] ? 1 : -1;
+        const sy = this.lineCoords[1] < this.lineCoords[3] ? 1 : -1;
+        let err = dx + dy;
+
+        let x = this.lineCoords[0];
+        let y = this.lineCoords[1];
+
+        while (true) {
+          const pixel = ctx.getImageData(x, y, 1, 1).data;
+          pixels.push({ x, y, r: pixel[0], g: pixel[1], b: pixel[2] });
+
+          if (x === this.lineCoords[2] && y === this.lineCoords[3]) break;
+          const e2 = 2 * err;
+          if (e2 >= dy) { err += dy; x += sx; }
+          if (e2 <= dx) { err += dx; y += sy; }
+        }
+
+        return pixels;
+      },
+
+      openHistograms(imageStage){
+
+        if (imageStage=='source'){
+
+          // if (this.sourceHistogramsOpen==true){
+          //   this.sourceHistogramsOpen=false;
+          //   return;
+          // }
+          if (this.sourceDrawProfileLineOpen){
+            this.sourceProfileLineOn = false;
+            this.sourceDrawProfileLineOpen = false;
+            
+          }
+
+          if (this.sourceProfileOpen) {
+            this.sourceProfileLineOn = false;
+            this.sourceProfileOpen = false
+          }
+
+          this.sourceDrawProfileLineOpen=false;
+          this.sourceHistogramsOpen=true;
+        }
+        else if(imageStage=='result'){
+
+          // if (this.resultHistogramsOpen==true){
+          //   this.resultHistogramsOpen=false;
+          //   return;
+          // }
+
+          if (this.resultDrawProfileLineOpen){
+            this.resultProfileLineOn = false;
+            this.resultDrawProfileLineOpen = false;
+          }
+
+          if (this.resultProfileOpen) {
+            this.resultProfileLineOn = false;
+            this.resultProfileOpen = false
+          }
+
+          this.resultDrawProfileLineOpen=false;
+          this.resultHistogramsOpen=true;
+        }
+        
+        this.$nextTick(() => {
+          this.histogramsProcess(imageStage);
+        });
+
+      },
+
+      histogramsProcess(imageStage) {
+
+        let canvas, ctx;
+
+        if(imageStage == "result"){
+          ({ canvas, ctx } = this.makeCanvas('result'));
+          ctx.drawImage(this.resultImage, 0, 0);
+        }
+        else if (imageStage == "source"){
+          ({ canvas, ctx } = this.makeCanvas('source'));
+          ctx.drawImage(this.sourceImage, 0, 0);
+        }
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const { rHist, gHist, bHist } = this.calculateRDBHistograms(pixels);
+        const iHist = this.calculateIntensityHistograms(pixels);
+
+        if (imageStage == "result"){
+          this.drawHistogram(this.$refs.redResultCanvas.getContext('2d'), rHist, 'red');
+          this.drawHistogram(this.$refs.greenResultCanvas.getContext('2d'), gHist, 'green');
+          this.drawHistogram(this.$refs.blueResultCanvas.getContext('2d'), bHist, 'blue');
+          this.drawHistogram(this.$refs.intResultCanvas.getContext('2d'), iHist, 'black');
+        }
+        else if (imageStage == "source"){
+          this.drawHistogram(this.$refs.redSourceCanvas.getContext('2d'), rHist, 'red');
+          this.drawHistogram(this.$refs.greenSourceCanvas.getContext('2d'), gHist, 'green');
+          this.drawHistogram(this.$refs.blueSourceCanvas.getContext('2d'), bHist, 'blue');
+          this.drawHistogram(this.$refs.intSourceCanvas.getContext('2d'), iHist, 'black');
+        }
+      },
+
+      calculateRDBHistograms(pixels) {
+        const rHist = new Array(256).fill(0);
+        const gHist = new Array(256).fill(0);
+        const bHist = new Array(256).fill(0);
+
+        for (let i = 0; i < pixels.length; i += 4) {
+          rHist[pixels[i]]++
+          gHist[pixels[i + 1]]++
+          bHist[pixels[i + 2]]++
+        }
+
+        return { rHist, gHist, bHist }
+      },
+
+      calculateIntensityHistograms(pixels) {
+        const iHist = new Array(256).fill(0);
+
+        for (let i = 0; i < pixels.length; i += 4) {
+
+          const intensity = Math.round(this.calcIntensity(pixels[i], pixels[i+1], pixels[i+2]));
+          iHist[intensity]++;
+        }
+
+        return iHist;
+      },
+
+      drawHistogram(ctx, data, color) {
+
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        const padding = 40;
+
+        ctx.clearRect(0, 0, width, height);
+
+        const chartWidth = width - padding;
+        const chartHeight = height - padding;
+
+        const max = Math.max(...data);
+        const barWidth = chartWidth / data.length;
+
+        ctx.clearRect(0, 0, width, height);
+
+        //Y
+        ctx.beginPath();
+        ctx.moveTo(padding, 0);
+        ctx.lineTo(padding, chartHeight);
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+
+        //X
+        ctx.beginPath();
+        ctx.moveTo(padding, chartHeight);
+        ctx.lineTo(width, chartHeight);
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+
+        ctx.fillStyle = '#000';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+
+        for (let i = 0; i <= 255; i += 50) {
+          const x = padding + i * barWidth;
+          ctx.fillText(i.toString(), x, chartHeight + 5);
+        }
+
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(max.toString(), padding-5, 10);
+
+        for (let i = 0; i < data.length; i++) {
+          const value = data[i];
+          const barHeight = (value / max) * chartHeight;
+
+          ctx.fillStyle = color;
+          ctx.fillRect(
+            padding + i * barWidth, 
+            chartHeight - barHeight, 
+            barWidth, 
+            barHeight);
+        }
+      },
+
+      toBinaryImage(){
+        this.isBinary = true;
+      },
+
+      closeBinary() {
+        this.isBinary = false;
+      },
+
+      toAddNoise() {
+        this.isNoiseOpen = true;
+      },
+
+      closeAddNoise() {
+        this.isNoiseOpen = false;
+      },
+
+      addNoiseProcess() {
+
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        for (let i=0; i<pixels.length; i+=4) {
+
+          const randomInt = Math.round(Math.random() * 10);
+
+          if (randomInt/10 < this.noiseProbability) {
+
+            if (Math.round(Math.random()) == 0) {
+              
+              pixels[i] = 0;
+              pixels[i+1] = 0;
+              pixels[i+2] = 0;
+            }
+            else {
+
+              pixels[i] = 255;
+              pixels[i+1] = 255;
+              pixels[i+2] = 255;
+            }
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      linearFilterProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        let pixelsMatrix = this.make2DPixelsArray(pixels, canvas.width, canvas.height);
+
+        for (let m=0; m<canvas.height-2; m++){
+          for (let i=0; i<canvas.width-2; i++){
+            let redFilterValue = 0;
+            let greenFilterValue = 0;
+            let blueFilterValue = 0;
+
+            for (let j=0; j<3; j++){
+              redFilterValue += pixelsMatrix[m+j][i].r + pixelsMatrix[m+j][i+1].r + pixelsMatrix[m+j][i+2].r;
+              greenFilterValue += pixelsMatrix[m+j][i].g + pixelsMatrix[m+j][i+1].g + pixelsMatrix[m+j][i+2].g;
+              blueFilterValue += pixelsMatrix[m+j][i].b + pixelsMatrix[m+j][i+1].b + pixelsMatrix[m+j][i+2].b;
+            }
+
+            pixelsMatrix[m+1][i+1].r = redFilterValue / 9;
+            pixelsMatrix[m+1][i+1].g = greenFilterValue / 9;
+            pixelsMatrix[m+1][i+1].b = blueFilterValue / 9;
+          }
+        }
+
+        this.make1DPixelsArray(pixels, pixelsMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      make2DPixelsArray(pixels, width, height) {
+
+        let matrix = [];
+
+        for (let y = 0; y < height; y++) {
+          const row = [];
+          for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const pixel = {
+              r: pixels[index],
+              g: pixels[index+1],
+              b: pixels[index+2],
+              a: pixels[index+3],
+            };
+            row.push(pixel);
+          }
+          matrix.push(row);
+        }
+
+        return matrix;
+      },
+
+      make1DPixelsArray(pixels, matrix, width, height) {
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const pixel = matrix[y][x];
+
+            pixels[index]     = pixel.r;
+            pixels[index + 1] = pixel.g;
+            pixels[index + 2] = pixel.b;
+            pixels[index + 3] = pixel.a;
+          }
+        }
+      },
+
+      toChangeBrightness() {
+        this.isChangeBrightness = true;
+      },
+
+      closeChangeBrightness() {
+        this.isChangeBrightness = false;
+      },
+
+      negativeProcess() {
+        const { canvas, ctx } = this.makeCanvas("source");
+        
+        ctx.drawImage(this.sourceImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        for (let i=0; i<pixels.length; i+=4){
+          pixels[i] = 255 - pixels[i];
+          pixels[i+1] = 255 - pixels[i+1];
+          pixels[i+2] = 255 - pixels[i+2];
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas, imageData);
+      },
+
+      shadesOfGrayProcess() {
+
+        const { canvas, ctx } = this.makeCanvas("source");
+        
+        ctx.drawImage(this.sourceImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArr = this.makeIntensityArray(pixels);
+
+        for (let i=0, j=0; i<pixels.length; i+=4, j++){
+          pixels[i] = intensityArr[j];
+          pixels[i+1] = intensityArr[j];
+          pixels[i+2] = intensityArr[j];
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas, imageData);
+      },
+
+      async binaryProcess() {
+
+        const firstColor = this.hexToRgb(this.firstColor);
+        const secondColor = this.hexToRgb(this.secondColor);
+
+        const { canvas, ctx } = this.makeCanvas("source");
+        
+        ctx.drawImage(this.sourceImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArr = this.makeIntensityArray(pixels);
+
+        let minI = Infinity;
+        let maxI = -Infinity;
+
+        for (let i=0; i<intensityArr.length; i++){
+          if (intensityArr[i] < minI) minI = intensityArr[i];
+          if (intensityArr[i] > maxI) maxI = intensityArr[i];
+        }
+
+        const thresholdI = this.thresholdFirst;
+      
+        for (let i=0, j=0; i < pixels.length; i+=4, j++) {
+          if (intensityArr[j] >= thresholdI) {
+            pixels[i] = secondColor[0];
+            pixels[i+1] = secondColor[1];
+            pixels[i+2] = secondColor[2];
+          }
+
+          else if (intensityArr[j] < thresholdI) {
+            pixels[i] = firstColor[0];
+            pixels[i+1] = firstColor[1];
+            pixels[i+2] = firstColor[2];
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas, imageData);
+      },
+
+      changeBrightnessContrastProcess() {
+
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        let r_intensity = 0;
+        let g_intensity = 0;
+        let b_intensity = 0;
+
+        // Яркость
+        for (let i=0; i<pixels.length; i+=4) {
+          for (let j = 0; j<3; j++){
+
+            let newPixel = pixels[i+j] + parseInt(this.brightness);
+            if (newPixel > 255) {
+              newPixel = 255;
+            }
+            else if (newPixel < 0){
+              newPixel = 0;
+            }
+            pixels[i+j] = newPixel;
+          }
+          r_intensity += pixels[i];
+          g_intensity += pixels[i+1];
+          b_intensity += pixels[i+2];
+        }
+
+        const channelAmount = pixels.length / 4;
+        const avgRGB = [r_intensity / channelAmount, g_intensity / channelAmount, b_intensity / channelAmount];
+
+        // Контрастность
+        for (let i=0; i<pixels.length; i+=4) {
+          for (let j = 0; j<3; j++){
+
+            let newPixel = this.contrast*(pixels[i+j] - avgRGB[j]) + avgRGB[j];
+            if (newPixel > 255) {
+              newPixel = 255;
+            }
+            else if (newPixel < 0){
+              newPixel = 0;
+            }
+            pixels[i+j] = newPixel;
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      putImageToStack(imageData) {
+        this.resultImagesStack.push(imageData);
+      },
+
+      makeIntensityArray(pixels) {
+        const size = pixels.length / 4;
+        const arr = new Array(size);
+
+        for (let i=0, j=0; i < pixels.length; i+=4, j++) {
+          arr[j] = this.calcIntensity(pixels[i], pixels[i+1], pixels[i+2]);
+        }
+
+        return arr;
+      },
+
+      calcIntensity(r, g, b) {
+        return 0.3*r + 0.59*g + 0.11*b;
+      },
+
+      makeCanvas(imageStage) {
+
+        const canvas = document.createElement('canvas');
+
+        if(imageStage=='source'){
+          canvas.width = this.sourceImage.width;
+          canvas.height = this.sourceImage.height;
+        }
+
+        else if(imageStage=='result') {
+          canvas.width = this.resultImage.width;
+          canvas.height = this.resultImage.height;
+        }
+
+        const ctx = canvas.getContext("2d");
+
+        return { canvas, ctx };
+      },
+
+      async makeResultImage(canvas) {
+        const blob = await new Promise((resolve) => {
+          canvas.toBlob((blob) => resolve(blob), "image/png");
+        });
+
+        this.imageResultSrc = URL.createObjectURL(blob);
+        this.resultImage = await this.loadImage(this.imageResultSrc);
+      },
+
+      async stepBack() {
+
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        if (this.resultImagesStack.length < 2) {
+          return;
+        }
+
+        this.resultImagesStack.pop();
+
+        const previousImage = this.resultImagesStack[this.resultImagesStack.length-1];
+
+        ctx.putImageData(previousImage, 0, 0);
+        this.makeResultImage(canvas);
+      },
+
+      async onFileChange(event) {
+        const file = event.target.files[0]; // Получить файл
         if (!file) return;
 
-        this.fileBlob = file; // Сохраняем файл в переменную
-        this.fileName = file.name; // Запоминаем имя файла
-        this.fileType = file.type; // Запоминаем формат (MIME type)
+        this.fileBlob = file;
+        this.fileName = file.name;
+        this.fileType = file.type;
+
         this.imageSrc = URL.createObjectURL(file);
-    },
+        const src = this.imageSrc;
+        
+        this.sourceImage = await this.loadImage(src)
+        this.imgSize = [this.sourceImage.width, this.sourceImage.height];
+      },
+
+      loadImage(src) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = src;
+          img.onload = () => {
+            resolve(img);
+          };
+        });
+      },
 
       triggerImgLoad() {
         this.$refs.fileInput.click();
       },
 
       startCrop(event) {
+
+        if (this.sourceDrawProfileLineOpen == true) {
+          this.sourceProfileLineOn = true;
+          this.drawProfileLine('source', event);
+        }
+
+        if (this.resultDrawProfileLineOpen == true) {
+          this.resultProfileLineOn = true;
+          this.drawProfileLine('result', event);
+        }
+
+        if (this.isCropping == false) {
+          return;
+        }
+
         event.preventDefault();
-        this.startCropCoords = [event.offsetX, event.offsetY];
+
+        this.cropRect = this.$refs.sourceImage.getBoundingClientRect();
+        this.cropCoords = [event.clientX - this.cropRect.left, event.clientY - this.cropRect.top];
 
         document.addEventListener("mousemove", this.moveCrop);
         document.addEventListener("mouseup", this.stopCrop);
       },
 
-      moveCrop(event){
+      drawProfileLine(imageStage, event){
 
-        console.log("x", event.offsetX, "y", event.offsetY);
+        if (imageStage == "source"){
+
+          event.preventDefault();
+
+          this.cropRect = this.$refs.sourceImage.getBoundingClientRect();
+          this.lineCoords = [Math.round(event.clientX - this.cropRect.left), Math.round(event.clientY - this.cropRect.top)];
+
+          document.addEventListener("mousemove", this.moveProfileLine);
+          document.addEventListener("mouseup", this.stopProfileLine);
+        }
+        else if (imageStage == "result"){
+          event.preventDefault();
+
+          this.cropRect = this.$refs.resultImage.getBoundingClientRect();
+          this.lineCoords = [Math.round(event.clientX - this.cropRect.left), Math.round(event.clientY - this.cropRect.top)];
+
+          document.addEventListener("mousemove", this.moveProfileLine);
+          document.addEventListener("mouseup", this.stopProfileLine);
+        }
       },
 
-      stopCrop(event){
+      moveProfileLine(){
+        this.lineCoords[2] = this.cursorCoords[0];
+        this.lineCoords[3] = this.cursorCoords[1];
+      },
 
-        this.endCropCoords = [event.offsetX, event.offsetY];
+      stopProfileLine(){
+        document.removeEventListener("mousemove", this.moveProfileLine);
+        document.removeEventListener("mouseup", this.stopProfileLine);
+      },
+
+      moveCrop(event){
+
+        this.cropCoords[2] = event.clientX - this.cropRect.left;
+        this.cropCoords[3] = event.clientY - this.cropRect.top;
+      },
+
+      stopCrop(){
         document.removeEventListener("mousemove", this.moveCrop);
+        document.removeEventListener("mouseup", this.moveCrop);
+      },
+
+      copyAll() {
+
+        this.cropRect = this.$refs.sourceImage.getBoundingClientRect();
+        this.isCropping = true;
+        this.cropCoords = [0, 0, this.imgSize[0], this.imgSize[1]];
+      },
+
+      async cropImage() {
+
+        const left = this.cropCoords[0];
+        const top = this.cropCoords[1];
+        const width = Math.abs(this.cropCoords[2] - this.cropCoords[0]);
+        const height = Math.abs(this.cropCoords[3] - this.cropCoords[1]);
+        
+        const canvas = document.createElement('canvas');
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+
+        ctx.drawImage(this.sourceImage, left, top, width, height, 0, 0, width, height);
+
+        const blob = await new Promise((resolve) => {
+          canvas.toBlob((blob) => resolve(blob), "image/png");
+        });
+
+        this.imageResultSrc = URL.createObjectURL(blob);
+        this.resultImage = await this.loadImage(this.imageResultSrc);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        this.resultImagesStack.push(imageData);
+
+        console.log("Положили на стек", this.resultImagesStack);
+
+        this.clearSelection();
+      },
+
+      clearSelection(){
+
+        this.cropCoords = null;
+
+        if (this.isCropping == false){
+          this.isCropping = true;
+        }
+
+        else if (this.isCropping == true) {
+          this.isCropping = false;
+        }
+      },
+
+      displaySourcePixelColor(event){
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = this.sourceImage.width;
+        canvas.height = this.sourceImage.height;
+
+        ctx.drawImage(this.sourceImage, 0, 0)
+
+        const rect = this.$refs.sourceImage.getBoundingClientRect();
+
+        const x = Math.floor(event.clientX - rect.left);
+        const y = Math.floor(event.clientY - rect.top);
+
+        this.cursorCoords = [x, y];
+
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        this.RGB = pixel;
+      },
+
+      displayResultPixelColor(event){
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = this.resultImage.width;
+        canvas.height = this.resultImage.height;
+
+        ctx.drawImage(this.resultImage, 0, 0)
+
+        const rect = this.$refs.resultImage.getBoundingClientRect();
+
+        const x = Math.floor(event.clientX - rect.left);
+        const y = Math.floor(event.clientY - rect.top);
+
+        this.cursorCoords = [x, y];
+
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        this.RGB = pixel;
+      },
+
+      startDisplaySourcePixelColor() {
+        this.isStatementSource = true
+      },
+
+      stopDisplaySourcePixelColor(){
+        this.isStatementSource = false;
+      },
+
+      startDisplayResultPixelColor() {
+        this.isStatementResult = true
+      },
+
+      stopDisplayResultPixelColor(){
+        this.isStatementResult = false;
+      },
+
+      downloadImage(){
+        if(!this.resultImage){
+          return
+        }
+
+        const link = document.createElement("a");
+        link.href = this.imageResultSrc;
+        link.download = "result-image.png";
+        link.click();
+      },
+
+      hexToRgb(hex) {
+
+      hex = hex.replace(/^#/, '');
+
+      if (hex.length === 3) {
+        hex = hex.split('').map(c => c + c).join('');
+      }
+
+      const bigint = parseInt(hex, 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+
+      return [r, g, b]
       },
     },
 
     computed: {
       cropBoxStyle() {
+        if (this.cropCoords == null){
+          return {
+            left: `${0}px`,
+            top: `${0}px`,
+            width: `${0}px`,
+            height: `${0}px`,
+          };
+        }
+        else{
+          return {
+            left: `${this.cropCoords[0]}px`,
+            top: `${this.cropCoords[1]}px`,
+            width: `${Math.abs(this.cropCoords[2] - this.cropCoords[0])}px`,
+            height: `${Math.abs(this.cropCoords[3] - this.cropCoords[1])}px`,
+          };
+        }
+      },
+
+      profileLineStyle() {
+
+        if (this.lineCoords[0] == null || this.lineCoords[1] == null) {
+          return{
+            display: 'none'
+          };
+        }
+
+        this.dxdy[0] = this.lineCoords[2] - this.lineCoords[0];
+        this.dxdy[1] = this.lineCoords[3] - this.lineCoords[1];
+        
+        const length = Math.sqrt(this.dxdy[0] * this.dxdy[0] + this.dxdy[1] * this.dxdy[1]);
+        const angle = Math.atan2(this.dxdy[1], this.dxdy[0]) * (180 / Math.PI);
+
         return {
-          left: `${this.startCropCoords[0]}px`,
-          top: `${this.startCropCoords[1]}px`,
-          width: `${this.endCropCoords[0] - this.startCropCoords[0]}px`,
-          height: `${this.endCropCoords[1] - this.startCropCoords[1]}px`,
+          left: `${this.lineCoords[0]}px`,
+          top: `${this.lineCoords[1]}px`,
+          width: `${length}px`,
+          transform: `rotate(${angle}deg)`,
+          transformOrigin: `0 0`
         };
+      },
+
+      correctImgContainer(){
+        return{
+          width: `${this.imgSize[0]*0.9}px`,
+          height: `${this.imgSize[1]*0.9}px`
+        }
+      },
+
+      statementPosition(){
+        return {
+          left: `${this.cursorCoords[0]+10}px`,
+          top: `${this.cursorCoords[1]+10}px`,
+        }
       }
-    }
+    },
+
+    
   };
 
 </script>
@@ -66,12 +1020,12 @@
   <div class="menu">
     <ul>
       <li>
-        <div class="menu-icon">
+        <div @click="stepBack" class="menu-icon">
           <img src="/icon-step-back.png" alt="" title="Шаг назад">
         </div>
       </li>
       <li>
-        <div class="menu-icon">
+        <div @click="downloadImage" class="menu-icon">
           <img src="/icon-save-img.png" alt="" title="Сохранить изображение">
         </div>
       </li>
@@ -86,14 +1040,36 @@
   
   <div class="toolbar">
     <ul>
-        <li><div class="toolbar-icon">
+        <li @click="clearSelection"><div class="toolbar-icon">
           <img src="/icon-select-area.png" alt="" title="Выделить область">
         </div></li>
-        <li><div class="toolbar-icon">
-          <img src="/icon-copy.png" alt="" title="Скопировать">
+        <li @click="copyAll"><div class="toolbar-icon">
+          <img src="/icon-select-all.png" alt="" title="Выделить все">
         </div></li>
-        <li><div class="toolbar-icon">
+        <li @click="cropImage"><div class="toolbar-icon">
           <img src="/icon-paste.png" alt="" title="Вставить">
+        </div></li>
+        <li @click="toBinaryImage"><div class="toolbar-icon">
+          <img src="/icon-binary.png" alt="" title="Бинаризация">
+        </div></li>
+        <li @click="shadesOfGrayProcess"><div class="toolbar-icon">
+          <img src="/icon-gray.png" alt="" title="Оттенки серого">
+        </div></li>
+        <li @click="negativeProcess"><div class="toolbar-icon">
+          <img src="/icon-negative.png" alt="" title="Негатив">
+        </div></li>
+        <li @click="toChangeBrightness"><div class="toolbar-icon">
+          <img src="/icon-brightness.png" alt="" title="Яркость/Контрастность">
+        </div></li>
+        <li @click="toAddNoise"><div class="toolbar-icon">
+          <img src="/icon-noise.png" alt="" title="Добавить шум">
+        </div></li>
+        <li><div class="toolbar-selector">
+          <img src="/icon-filter.png" alt="" title="Линейный фильтр">
+          <div class="filters">
+            <span @click="linearFilterProcess">Линейный сглаживающий</span>
+            <span>Нелинейный медианный</span>
+          </div>
         </div></li>
     </ul>
   </div>
@@ -102,21 +1078,211 @@
   <div class="container">
     <div class="first-image-container">
       <h1>Исходное изображение</h1>
-      <div class="image">
-        <img v-if="imageSrc" @mousedown="startCrop" :src="imageSrc" alt="" draggable="false">
-        <div class="crop-box" :style="cropBoxStyle"></div>
-        <div class="statement"></div>
+      <div class="image" :style="correctImgContainer">
+        <img v-if="imageSrc" @mousemove="displaySourcePixelColor" @mouseover="startDisplaySourcePixelColor" @mouseleave="stopDisplaySourcePixelColor" @mousedown="startCrop" :src="imageSrc" ref="sourceImage" alt="" draggable="false">
+        <div v-if="isCropping == true" class="crop-box" :style="cropBoxStyle"></div>
+        <div v-if="sourceProfileLineOn == true" class="profile-line" :style="profileLineStyle"></div>
+        <div v-if="isStatementSource" class="statement" :style="statementPosition">
+          <table>
+            <tbody>
+              <tr class="red">
+                <td>R:</td>
+                <td>{{ RGB[0] }}</td>
+              </tr>
+              <tr class="green">
+                <td>G:</td>
+                <td>{{ RGB[1] }}</td>
+              </tr>
+              <tr class="blue">
+                <td>B:</td>
+                <td>{{ RGB[2] }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="btns-container">
+        <button class="graphs-btn" @click="openHistograms('source')" title="Построить гистограммы"></button>
+        <button class="brightness-profile-btn" @click="openDrawProfileLine('source')" title="Построить профиль яркости"></button>
+      </div>
+      <div v-if="sourceHistogramsOpen" class="histograms">
+
+        <div class="histsRow"> 
+          <div class="redHist">
+            <canvas ref="redSourceCanvas" width="400" height="200"></canvas>
+          </div>
+          <div class="greenHist">
+            <canvas ref="greenSourceCanvas" width="400" height="200"></canvas>
+          </div>
+          <div class="blueHist">
+            <canvas ref="blueSourceCanvas" width="400" height="200"></canvas>
+          </div>
+        </div>
+        
+        <div class="histsRow">
+          <div class="intHist">
+            <canvas ref="intSourceCanvas" width="400" height="200"></canvas>
+          </div>
+        </div>
+
+      </div>
+      <div v-if="sourceDrawProfileLineOpen" class="drawProfileLine">
+        <span>Начертите линию на фото</span>
+        <button @click="profileProcess('source')">Готово</button>
+      </div>
+      <div v-if="sourceProfileOpen" class="profile">
+        <canvas ref="sourceProfileCanvas" width="700" height="400"></canvas>
       </div>
     </div>
     <div class="second-image-container">
       <h1>Итоговое изображение</h1>
-      <div class="image">
-        <img src="" alt="" draggable="false">
-        <div class="statement"></div>
+      <div class="image" :style="correctImgContainer">
+        <img v-if="resultImage" @mousemove="displayResultPixelColor" @mouseover="startDisplayResultPixelColor" @mouseleave="stopDisplayResultPixelColor" @mousedown="startCrop" :src="imageResultSrc" ref="resultImage" alt="" draggable="false">
+        <div v-if="resultProfileLineOn == true" class="profile-line" :style="profileLineStyle"></div>
+        <div v-if="isStatementResult" class="statement" :style="statementPosition">
+          <table>
+            <tbody>
+              <tr class="red">
+                <td>R:</td>
+                <td>{{ RGB[0] }}</td>
+              </tr>
+              <tr class="green">
+                <td>G:</td>
+                <td>{{ RGB[1] }}</td>
+              </tr>
+              <tr class="blue">
+                <td>B:</td>
+                <td>{{ RGB[2] }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="btns-container">
+        <button class="graphs-btn" @click="openHistograms('result')" title="Построить гистограммы"></button>
+        <button class="brightness-profile-btn" @click="openDrawProfileLine('result')" title="Построить профиль яркости"></button>
+      </div>
+      <div v-if="resultHistogramsOpen" class="histograms">
+        <div class="histsRow">
+          <div class="redHist">
+            <canvas ref="redResultCanvas" width="400" height="200"></canvas>
+          </div>
+          <div class="greenHist">
+            <canvas ref="greenResultCanvas" width="400" height="200"></canvas>
+          </div>
+          <div class="blueHist">
+            <canvas ref="blueResultCanvas" width="400" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="histsRow">
+          <div class="intHist">
+            <canvas ref="intResultCanvas" width="400" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+      <div v-if="resultDrawProfileLineOpen" class="drawProfileLine">
+        <span>Начертите линию на фото</span>
+        <button @click="profileProcess('result')">Готово</button>
+      </div>
+      <div v-if="resultProfileOpen" class="profile">
+        <canvas ref="resultProfileCanvas" width="700" height="400"></canvas>
       </div>
     </div>
-  </div>
 
+    <div v-if="isBinary" class="binary-options">
+      <span>Выберите порог бинаризации: {{ thresholdFirst }}</span>
+      <input
+        type="range"
+        id="threshold"
+        min="0"
+        max="255"
+        v-model="thresholdFirst"
+      />
+
+      <div class="colors-container">
+        <table>
+          <thead>
+            <tr>
+              <td>Основной</td>
+              <td>Фон</td>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <input
+                  class="first-color"
+                  type="color"
+                  id="color"
+                  v-model="firstColor"
+                  placeholder="faf"
+                />
+              </td>
+              <td>
+                <input
+                  class="second-color"
+                  type="color"
+                  id="color"
+                  v-model="secondColor"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+          
+      </div>
+
+      <div class="btns-container">
+        <button class="cancel" @click="closeBinary">Вернуться</button>
+        <button class="save-btn" @click="binaryProcess">Применить</button>
+      </div>
+    </div>
+
+
+    <div v-if="isChangeBrightness" class="brightness-options">
+      <span>Выберите яркость: {{ brightness }}</span>
+      <input
+        type="range"
+        id="threshold"
+        min="-255"
+        max="255"
+        v-model="brightness"
+      />
+      <span>Выберите контрастность: {{ contrast }}</span>
+      <input
+        type="range"
+        id="threshold"
+        min="0"
+        max="3"
+        step="0.1"
+        v-model.number="contrast"
+      />
+
+      <div class="btns-container">
+        <button class="cancel" @click="closeChangeBrightness">Вернуться</button>
+        <button class="save-btn" @click="changeBrightnessContrastProcess">Применить</button>
+      </div>
+    </div>
+
+    <div v-if="isNoiseOpen" class="brightness-options">
+      <span>Выберите вероятность: {{ noiseProbability }}</span>
+      <input
+        type="range"
+        id="threshold"
+        min="0"
+        max="0.4"
+        step="0.1"
+        v-model.number="noiseProbability"
+      />
+
+      <div class="btns-container">
+        <button class="cancel" @click="closeAddNoise">Вернуться</button>
+        <button class="save-btn" @click="addNoiseProcess">Применить</button>
+      </div>
+    </div>
+
+  </div>
 
 </template>
 
@@ -137,11 +1303,279 @@
     list-style: none;
 }
 
+.container .drawProfileLine{
+
+  margin-top: 10px;
+
+  width: 100%;
+  height: 200px;
+
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+  justify-content: center;
+
+  background: #b1b1b1;
+}
+
+.container .drawProfileLine span{
+  color: black;
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.container .drawProfileLine button{
+
+  width: 150px;
+  height: 60px;
+
+  border-radius: 10px;
+  background-color: white;
+
+  font-size: 22px;
+
+  cursor: pointer;
+}
+
+.container .profile {
+
+margin-top: 20px;
+
+align-items: center;
+border: 1px solid #fff;
+
+background-color: #b1b1b1;
+
+width: 100%;
+height: 300px;
+
+display: flex;
+flex-direction: column;
+}
+
+.container .profile canvas {
+margin-top: 20px;
+width: 90%;
+}
+
+.container .histograms {
+
+margin-top: 10px;
+
+width: 100%;
+
+display: flex;
+flex-direction: column;
+}
+
+.container .histograms .histsRow {
+
+  margin-top: 10px;
+
+  height: 120px;
+  width: 100%;
+
+  display: flex;
+  flex-direction: row;
+
+  justify-content: space-between;
+
+  flex-wrap: wrap;
+}
+
+.container .histograms .histsRow .redHist, .greenHist, .blueHist, .intHist {
+
+  align-items: center;
+  border: 1px solid #fff;
+
+  background-color: #b1b1b1;
+
+  width: 220px;
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
+}
+
+.container .histograms canvas {
+  margin-top: 20px;
+  width: 90%;
+}
+
+.container .btns-container {
+  margin-top: 2px;
+  height: 50px;
+  width: 100%;
+}
+
+.container .btns-container button {
+
+  all: unset;
+
+  height: 50px;
+  width: 50px;
+
+  cursor: pointer;
+
+  margin-right: 5px;
+}
+
+.container .btns-container .brightness-profile-btn {
+
+background: url("/icon-profile.png");
+background-size: contain;
+}
+
+.container .btns-container .graphs-btn {
+
+background: url("/icon-hists.png");
+background-size: contain;
+}
+
+.container .binary-options {
+
+  position: fixed;
+  top: 800px;
+  left: 750px;
+
+  height: 200px;
+  width: 500px;
+
+  background-color: #b2b2b2;
+
+  display: flex;
+  flex-direction: column;
+
+  border-radius: 16px;
+
+  align-items: center;
+
+  z-index: 20;
+}
+
+.container .binary-options span {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.container .binary-options input {
+  width: 70%;
+  cursor: pointer;
+}
+
+.container .binary-options .colors-container {
+
+  display: flex;
+  flex-direction: row;
+
+  margin-top: 20px;
+  margin-bottom: 10px;
+
+  gap: 40px;
+}
+
+.container .binary-options .colors-container .first-color{
+
+  height: 40px;
+  width: 140px;
+
+  cursor: pointer;
+}
+
+.container .binary-options .colors-container .second-color{
+
+height: 40px;
+width: 140px;
+
+cursor: pointer;
+}
+
+.container .binary-options .colors-container table td{
+  text-align: center;
+}
+
+.container .binary-options .btns-container {
+
+  display: flex;
+  justify-content: center;
+}
+
+.container .binary-options .btns-container button{
+
+  width: 140px;
+  height: 30px;
+  margin-right: 10px;
+  margin-left: 10px;
+
+  border-radius: 10px;
+
+  background-color: #fff;
+
+  cursor: pointer;
+
+  text-align: center;
+}
+
+.container .brightness-options {
+
+position: fixed;
+top: 800px;
+left: 750px;
+
+height: 200px;
+width: 500px;
+
+background-color: #b2b2b2;
+
+display: flex;
+flex-direction: column;
+
+border-radius: 16px;
+
+align-items: center;
+
+z-index: 20;
+}
+
+.container .brightness-options span {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.container .brightness-options input {
+  width: 70%;
+  cursor: pointer;
+}
+
+.container .brightness-options .btns-container {
+
+  margin-top: 30px;
+  display: flex;
+  justify-content: center;
+}
+
+.container .brightness-options .btns-container button{
+
+  width: 140px;
+  height: 30px;
+  margin-right: 10px;
+  margin-left: 10px;
+
+  border-radius: 10px;
+
+  background-color: #fff;
+
+  cursor: pointer;
+
+  text-align: center;
+}
+
 .menu {
 
   width: 100vw;
   height: 70px;
-  background-color: blue;
 
   top: 0;
   left: 0;
@@ -153,7 +1587,7 @@
 
   background: #fff;
 
-  z-index: 10;
+  z-index: 15;
 
   box-shadow: 0px 4px 8px black;
 }
@@ -187,7 +1621,7 @@
 
   box-shadow: 4px 0px 12px rgba(0, 0, 0, 0.47);
 
-  z-index: 5;
+  z-index: 10;
 }
 
 .toolbar ul {
@@ -210,6 +1644,8 @@
   display: flex;
   justify-content: center;
   align-items: center;
+
+  cursor: pointer;
 }
 
 .menu-icon img, .toolbar-icon img{
@@ -231,12 +1667,87 @@
   display: flex;
   justify-content: center;
   align-items: center;
+
+  cursor: pointer;
+}
+
+.menu-icon img, .toolbar-selector img {
+  width: 96%;
+  height: 96%;
+  user-select: none;
+
+  overflow: hidden;
+}
+
+.toolbar-selector {
+  
+  position: relative;
+
+  width: 50px;
+  height: 50px;
+
+  background-color: #fff;
+  border: 1px solid #000000;
+  border-radius: 4px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  cursor: pointer;
+
+  z-index: 10;
+}
+
+.toolbar-selector .filters {
+
+  position: absolute;
+
+  width: 260px;
+
+  left: 48px;
+  top: 0px;
+
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+
+  gap: 4px;
+
+  background-color: #000000;
+
+  display: none;
+
+  z-index: 15;
+}
+
+.toolbar-selector:hover .filters {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar-selector .filters span {
+
+  font-size: 16px;
+
+  padding-top: 2px;
+  padding-left: 10px;
+
+  background-color: #2c2c2c;
+
+  cursor: pointer;
+
+  transition: .2s;
+}
+
+.toolbar-selector .filters span:hover {
+  background-color: #000000;
 }
 
 .container {
-  width: 90vw;
-  height: 90vh;
 
+  width: 90vw;
+  
   padding: 50px;
 
   display: flex;
@@ -247,19 +1758,17 @@
 
 .first-image-container {
 
-  width: 680px;
-  height: 700px;
-
   display: flex;
   flex-direction: column;
 
   align-items: center;
+
+  position: relative;
+
+  z-index: 5;
 }
 
 .second-image-container {
-
-  width: 680px;
-  height: 700px;
 
   display: flex;
   flex-direction: column;
@@ -269,40 +1778,24 @@
 
 .image {
 
-  width: 100%;
-  height: 100%;
-  
   border: 4px solid rgb(0, 0, 0);
-  border-radius: 12px;
+  box-sizing: border-box;
 
   background-color: #b1b1b1;
-
-  overflow: hidden;
 
   display: flex;
   flex-direction: column;
 
   position: relative;
+
+  z-index: 5;
 }
 
 .image img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-.image .statement {
-
-  position: absolute;
-
-  top: 85%;
+  
   width: 100%;
-  height: 15%;
-
-  border: 2px solid rgba(0, 0, 0, 0.505);
-  border-radius: 8px;
-
-  background-color: rgba(150, 150, 150, 0.514);
+  height: 100%;
+  object-fit:contain;
 }
 
 .container h1 {
@@ -314,10 +1807,54 @@
 
 .crop-box {
   position: absolute;
+
   border: 2px solid rgba(0, 0, 0, 0.5);
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.089);
   cursor: move;
   z-index: 10;
 }
+
+.image .profile-line {
+
+  position: absolute;
+  height: 2px;
+  background-color: red;
+  border: 2px solid rgba(255, 0, 0, 0.5);
+
+  z-index: 10;
+}
+
+.statement {
+
+  position: absolute;
+
+  width: 110px;
+  height: 80px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-left: 10px;
+
+  border: 1px solid black;
+  border-radius: 10px;
+
+  background-color: #d8d8d885;
+  z-index: 15;
+}
+
+.green td{
+  color: green;
+}
+
+.red td{
+  color: red;
+}
+
+.blue td {
+  color: blue;
+}
+
+
 
 </style>
