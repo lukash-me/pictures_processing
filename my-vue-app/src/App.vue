@@ -1,5 +1,5 @@
 <script>
-  import { ref } from 'vue'
+  import { getTransitionRawChildren, ref } from 'vue'
 
   export default{  
 
@@ -127,9 +127,9 @@
           const pixels = this.getPixelsOnLine(ctx);
 
           this.$nextTick(() => {
-          const canvas = this.$refs.sourceProfileCanvas;
-          this.drawProfile(canvas, this.$refs.sourceProfileCanvas.getContext('2d'), pixels);
-        });
+            const canvas = this.$refs.sourceProfileCanvas;
+            this.drawProfile(canvas, this.$refs.sourceProfileCanvas.getContext('2d'), pixels);
+          });
         }
       },
 
@@ -447,6 +447,10 @@
 
         let pixelsMatrix = this.make2DPixelsArray(pixels, canvas.width, canvas.height);
 
+        let resultPixelsMatrix = this.makeEmpty2DPixelsArray(canvas.width, canvas.height);
+
+        // Проход 3x3. avg в центр
+
         for (let m=0; m<canvas.height-2; m++){
           for (let i=0; i<canvas.width-2; i++){
             let redFilterValue = 0;
@@ -454,22 +458,479 @@
             let blueFilterValue = 0;
 
             for (let j=0; j<3; j++){
-              redFilterValue += pixelsMatrix[m+j][i].r + pixelsMatrix[m+j][i+1].r + pixelsMatrix[m+j][i+2].r;
-              greenFilterValue += pixelsMatrix[m+j][i].g + pixelsMatrix[m+j][i+1].g + pixelsMatrix[m+j][i+2].g;
-              blueFilterValue += pixelsMatrix[m+j][i].b + pixelsMatrix[m+j][i+1].b + pixelsMatrix[m+j][i+2].b;
+              redFilterValue += pixelsMatrix[m+j][i][0] + pixelsMatrix[m+j][i+1][0] + pixelsMatrix[m+j][i+2][0];
+              greenFilterValue += pixelsMatrix[m+j][i][1] + pixelsMatrix[m+j][i+1][1] + pixelsMatrix[m+j][i+2][1];
+              blueFilterValue += pixelsMatrix[m+j][i][2] + pixelsMatrix[m+j][i+1][2] + pixelsMatrix[m+j][i+2][2];
             }
 
-            pixelsMatrix[m+1][i+1].r = redFilterValue / 9;
-            pixelsMatrix[m+1][i+1].g = greenFilterValue / 9;
-            pixelsMatrix[m+1][i+1].b = blueFilterValue / 9;
+            resultPixelsMatrix[m+1][i+1][0] = redFilterValue / 9;
+            resultPixelsMatrix[m+1][i+1][1] = greenFilterValue / 9;
+            resultPixelsMatrix[m+1][i+1][2] = blueFilterValue / 9;
           }
         }
 
-        this.make1DPixelsArray(pixels, pixelsMatrix, canvas.width, canvas.height);
+        // Проход 2x2. avg в угол.
+
+        for (let i=0; i<canvas.width-1; i++){
+
+          //[up, down, left, right]
+
+          let filterValue = {
+            0: [0, 0, 0, 0],
+            1: [0, 0, 0, 0],
+            2: [0, 0, 0, 0]
+          }
+
+          for (let j=0; j<2; j++){
+            for (let k=0; k<3; k++){
+              filterValue[k][0] += pixelsMatrix[j][i][k] + pixelsMatrix[j][i+1][k];
+              filterValue[k][1] += pixelsMatrix[canvas.height-2+j][i][k] + pixelsMatrix[canvas.height-2+j][i+1][k] ;
+              filterValue[k][2] += pixelsMatrix[i][j][k] + pixelsMatrix[i+1][j][k] ;
+              filterValue[k][3] += pixelsMatrix[i][canvas.width-2+j][k] + pixelsMatrix[i+1][canvas.width-2+j][k] ;
+            }
+          }
+          
+          for (let k=0; k<3; k++) {
+            resultPixelsMatrix[0][i][k]               = filterValue[k][0] / 4;
+            resultPixelsMatrix[canvas.height-1][i][k] = filterValue[k][1] / 4;
+            resultPixelsMatrix[i][0][k]               = filterValue[k][2] / 4;
+            resultPixelsMatrix[i][canvas.width-1][k]  = filterValue[k][3] / 4;
+          }
+        }
+
+        this.make1DPixelsArray(pixels, resultPixelsMatrix, canvas.width, canvas.height);
 
         ctx.putImageData(imageData, 0, 0);
         this.putImageToStack(imageData);
         this.makeResultImage(canvas);
+      },
+
+      medianFilterProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        let pixelsMatrix = this.make2DPixelsArray(pixels, canvas.width, canvas.height);
+
+        let resultPixelsMatrix = this.makeEmpty2DPixelsArray(canvas.width, canvas.height);
+
+        // Проход 3x3. median в центр
+
+        for (let m=0; m<canvas.height-2; m++){
+          for (let i=0; i<canvas.width-2; i++){
+            let redFilterValues = [];
+            let greenFilterValues = [];
+            let blueFilterValues = [];
+
+            for (let j=0; j<3; j++){
+              for (let k=0; k<3; k++){
+                redFilterValues.push(pixelsMatrix[m+j][i+k][0]);
+                greenFilterValues.push(pixelsMatrix[m+j][i+k][1]);
+                blueFilterValues.push(pixelsMatrix[m+j][i+k][2])
+              }
+            }
+
+            const medians = [this.calculateMedian(redFilterValues), 
+                            this.calculateMedian(greenFilterValues), 
+                            this.calculateMedian(blueFilterValues)
+                          ];
+
+            resultPixelsMatrix[m+1][i+1][0] = medians[0];
+            resultPixelsMatrix[m+1][i+1][1] = medians[1];
+            resultPixelsMatrix[m+1][i+1][2] = medians[2];
+
+          }
+        }
+
+        // Проход 3x3. median в угол.
+
+        for (let i=0; i<canvas.width-2; i++){
+
+          //[up, down, left, right]
+
+          let filterValue = {
+            0: [[], [], [], []],
+            1: [[], [], [], []],
+            2: [[], [], [], []]
+          }
+
+          for (let j=0; j<3; j++){
+            for (let k=0; k<3; k++){
+              for(let m=0; m<3; m++) {
+                filterValue[k][0].push(pixelsMatrix[j][i+m][k]);
+                filterValue[k][1].push(pixelsMatrix[canvas.height-3+j][i+m][k]);
+                filterValue[k][2].push(pixelsMatrix[i+m][j][k]);
+                filterValue[k][3].push(pixelsMatrix[i+m][canvas.width-3+j][k]);
+              }
+            }
+          }
+
+          for (let k=0; k<3; k++) {
+            resultPixelsMatrix[0][i][k]               = this.calculateMedian(filterValue[k][0]);
+            resultPixelsMatrix[canvas.height-1][i][k] = this.calculateMedian(filterValue[k][1]);
+            resultPixelsMatrix[i][0][k]               = this.calculateMedian(filterValue[k][2]);
+            resultPixelsMatrix[i][canvas.width-1][k]  = this.calculateMedian(filterValue[k][3]);
+          }
+        }
+
+        this.make1DPixelsArray(pixels, resultPixelsMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      calculateMedian(array) {
+        array.sort((a, b) => a - b);
+        return array[4];
+      },
+
+      statisticsMethodProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArray = this.makeIntensityArray(pixels);
+        let intensityMatrix = this.make2DIntensityArray(intensityArray, canvas.width, canvas.height);
+
+        let resultIntensityMatrix = Array.from({ length: canvas.height }, () => Array(canvas.width).fill(0));
+
+
+        for (let i=0; i<canvas.height-2; i++) {
+          for (let j=0; j<canvas.width-2; j++) {
+
+            let sum = 0;
+            let A = [];
+
+            for (let m=0; m<2; m++) {
+              for (let k=0; k<2; k++) {
+                A.push(intensityMatrix[i+m][j+k]);
+                sum += A[A.length-1]; 
+              }
+            }
+
+            const mu = sum / 9;
+
+            sum = 0;
+
+            for (let m=0; m<A.length; m++) {
+              sum += Math.pow((A[m] - mu), 2) 
+            }
+
+            const sigma = Math.abs(sum / 9)
+
+            let F = sigma * intensityMatrix[i+1][j+1]/ 1000;
+
+            if (F > 255) {
+              F = 255;
+            }
+
+            resultIntensityMatrix[i+1][j+1] = F;
+          }
+        }
+
+
+        this.make1DPixelsArrayFromIntensity(pixels, resultIntensityMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      uallasProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArray = this.makeIntensityArray(pixels);
+        let intensityMatrix = this.make2DIntensityArray(intensityArray, canvas.width, canvas.height);
+
+        let resultIntensityMatrix = Array.from({ length: canvas.height }, () => Array(canvas.width).fill(0));
+
+        for (let i=0; i<canvas.height-2; i++) {
+          for (let j=0; j<canvas.width-2; j++) {
+
+            let A = [];
+
+            A.push(intensityMatrix[i][j+1]);
+            A.push(intensityMatrix[i+1][j]);
+            A.push(intensityMatrix[i+1][j+2]);
+            A.push(intensityMatrix[i+2][j+1]);
+
+            let F = intensityMatrix[i+1][j+1];
+
+            let multiply = 1;
+
+            for (let i=0; i<A.length; i++) {
+              if (A[i] == 0) {
+                A[i] = 1;
+              }
+
+              multiply *= F / A[i];
+            }
+
+            F = Math.log(multiply) / 4 * 1000 + 50;
+
+            if (F > 255) {
+              F = 255;
+            }
+            else if (F < 0) {
+              F = 0;
+            }
+
+            resultIntensityMatrix[i+1][j+1] = F;
+          }
+        }
+
+        this.make1DPixelsArrayFromIntensity(pixels, resultIntensityMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      sobelProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArray = this.makeIntensityArray(pixels);
+        let intensityMatrix = this.make2DIntensityArray(intensityArray, canvas.width, canvas.height);
+
+        let resultIntensityMatrix = Array.from({ length: canvas.height }, () => Array(canvas.width).fill(0));
+
+        for (let i=0; i<canvas.height-2; i++) {
+          for (let j=0; j<canvas.width-2; j++) {
+
+            let A = [];
+
+            for (let k=0; k<3; k++) {
+              for (let m=0; m<3; m++) {
+                A.push(intensityMatrix[i+k][j+m]);
+              }
+            }
+
+            let F = 0;
+
+            const X = (A[0] + 2*A[1] + A[2]) - (A[6] + 2*A[7] + A[8]);
+            const Y = (A[0] + 2*A[3] + A[6]) - (A[2] + 2*A[5] + A[8]);
+
+            F = Math.sqrt(Math.pow(X, 2) + Math.pow(Y, 2));
+
+            if (F > 255) {
+              F = 255;
+            }
+            else if (F < 0) {
+              F = 0;
+            }
+
+            resultIntensityMatrix[i+1][j+1] = F;
+          }
+        }
+
+        this.make1DPixelsArrayFromIntensity(pixels, resultIntensityMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      robertsProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArray = this.makeIntensityArray(pixels);
+        let intensityMatrix = this.make2DIntensityArray(intensityArray, canvas.width, canvas.height);
+
+        let resultIntensityMatrix = Array.from({ length: canvas.height }, () => Array(canvas.width).fill(0));
+
+        for (let i=0; i<canvas.height-1; i++) {
+          for (let j=0; j<canvas.width-1; j++) {
+
+            let A = [];
+
+            for (let k=0; k<2; k++) {
+              for (let m=0; m<2; m++) {
+                A.push(intensityMatrix[i+k][j+m]);
+              }
+            }
+
+            let F = Math.sqrt(Math.pow((A[0] - A[3]), 2) + Math.pow((A[1] - A[2]), 2));
+
+            if (F > 255) {
+              F = 255;
+            }
+            else if (F < 0) {
+              F = 0;
+            }
+
+            resultIntensityMatrix[i][j] = F;
+          }
+        }
+
+        this.make1DPixelsArrayFromIntensity(pixels, resultIntensityMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      laplaceProcess() {
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArray = this.makeIntensityArray(pixels);
+        let intensityMatrix = this.make2DIntensityArray(intensityArray, canvas.width, canvas.height);
+
+        let resultIntensityMatrix = Array.from({ length: canvas.height }, () => Array(canvas.width).fill(0));
+
+
+        for (let i=0; i<canvas.height-2; i++) {
+          for (let j=0; j<canvas.width-2; j++) {
+
+            let A = [];
+
+            for (let k=0; k<3; k++) {
+              for (let m=0; m<3; m++) {
+                A.push(intensityMatrix[i+k][j+m]);
+              }
+            }
+
+            const kernel = [-1, -2, -1,
+                            -2, 12, -2,
+                            -1, -2, -1
+            ] 
+
+            let F = 0;
+
+            for (let k=0; k<9; k++) {
+              F += A[k] * kernel[k];
+            }
+
+            if (F > 255) {
+              F = 255;
+            }
+            else if (F < 0) {
+              F = 0;
+            }
+
+            resultIntensityMatrix[i+1][j+1] = F;
+          }
+        }
+
+        this.make1DPixelsArrayFromIntensity(pixels, resultIntensityMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      kirschProcess() {
+
+        const { canvas, ctx } = this.makeCanvas("result");
+
+        ctx.drawImage(this.resultImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pixels = imageData.data;
+
+        const intensityArray = this.makeIntensityArray(pixels);
+        let intensityMatrix = this.make2DIntensityArray(intensityArray, canvas.width, canvas.height);
+
+        let resultIntensityMatrix = Array.from({ length: canvas.height }, () => Array(canvas.width).fill(0));
+
+        for (let i=0; i<canvas.height-2; i++) {
+          for (let j=0; j<canvas.width-2; j++) {
+            let A = [
+                      intensityMatrix[i][j],
+                      intensityMatrix[i][j+1],
+                      intensityMatrix[i][j+2],
+                      intensityMatrix[i+1][j+2],
+                      intensityMatrix[i+2][j+2],
+                      intensityMatrix[i+2][j+1],
+                      intensityMatrix[i+2][j],
+                      intensityMatrix[i+1][j]
+                    ];
+
+            let S = [];
+            let T = [];
+
+            for (let m=0; m<8; m++) {
+              S.push(A[m] + A[this.addMod8(m, 1)] + A[this.addMod8(m, 2)]);
+
+              let sumT = 0;
+
+              for (let p=3; p<8; p++) {
+                sumT += A[this.addMod8(m, p)]
+              }
+
+              T.push(sumT);
+            }
+
+            let ST = [];
+
+            for (let m=0; m<8; m++) {
+              ST.push(Math.abs(5*S[m] - 3*T[m]));
+            }
+            let maxST = Math.max(...ST);
+
+            if (maxST > 255) {
+              maxST = 255;
+            }
+
+            resultIntensityMatrix[i+1][j+1] = maxST;
+          }
+        }
+
+        this.make1DPixelsArrayFromIntensity(pixels, resultIntensityMatrix, canvas.width, canvas.height);
+
+        ctx.putImageData(imageData, 0, 0);
+        this.putImageToStack(imageData);
+        this.makeResultImage(canvas);
+      },
+
+      addMod8(a, b) {
+        const sum = a + b;
+        if (sum > 7) {
+          return sum - 8;
+        }
+        return sum;
+      },
+
+      make2DIntensityArray(intensityArray, width, height) {
+        let matrix = [];
+
+        for (let y = 0; y < height; y++) {
+          const row = [];
+          for (let x = 0; x < width; x++) {
+            const index = (y * width + x);
+            const pixel = intensityArray[index];
+            row.push(pixel);
+          }
+          matrix.push(row);
+        }
+
+        return matrix;
       },
 
       make2DPixelsArray(pixels, width, height) {
@@ -481,10 +942,10 @@
           for (let x = 0; x < width; x++) {
             const index = (y * width + x) * 4;
             const pixel = {
-              r: pixels[index],
-              g: pixels[index+1],
-              b: pixels[index+2],
-              a: pixels[index+3],
+              0: pixels[index],
+              1: pixels[index+1],
+              2: pixels[index+2],
+              3: pixels[index+3],
             };
             row.push(pixel);
           }
@@ -494,6 +955,42 @@
         return matrix;
       },
 
+      makeEmpty2DPixelsArray(width, height) {
+
+        let matrix = [];
+
+        for (let y = 0; y < height; y++) {
+          const row = [];
+          for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const pixel = {
+              0: 0,
+              1: 0,
+              2: 0,
+              3: 255,
+            };
+            row.push(pixel);
+          }
+          matrix.push(row);
+        }
+
+        return matrix;
+      },
+
+      make1DPixelsArrayFromIntensity(pixels, matrix, width, height) {
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const pixel = matrix[y][x];
+
+            pixels[index]     = pixel;
+            pixels[index + 1] = pixel;
+            pixels[index + 2] = pixel;
+            pixels[index + 3] = 255;
+          }
+        }
+      },
+
       make1DPixelsArray(pixels, matrix, width, height) {
 
         for (let y = 0; y < height; y++) {
@@ -501,10 +998,10 @@
             const index = (y * width + x) * 4;
             const pixel = matrix[y][x];
 
-            pixels[index]     = pixel.r;
-            pixels[index + 1] = pixel.g;
-            pixels[index + 2] = pixel.b;
-            pixels[index + 3] = pixel.a;
+            pixels[index]     = pixel[0];
+            pixels[index + 1] = pixel[1];
+            pixels[index + 2] = pixel[2];
+            pixels[index + 3] = pixel[3];
           }
         }
       },
@@ -850,8 +1347,6 @@
 
         this.resultImagesStack.push(imageData);
 
-        console.log("Положили на стек", this.resultImagesStack);
-
         this.clearSelection();
       },
 
@@ -1065,10 +1560,16 @@
           <img src="/icon-noise.png" alt="" title="Добавить шум">
         </div></li>
         <li><div class="toolbar-selector">
-          <img src="/icon-filter.png" alt="" title="Линейный фильтр">
+          <img src="/icon-filter.png" alt="" title="Фильтр">
           <div class="filters">
             <span @click="linearFilterProcess">Линейный сглаживающий</span>
-            <span>Нелинейный медианный</span>
+            <span @click="medianFilterProcess">Нелинейный медианный</span>
+            <span @click="kirschProcess">Кирша</span>
+            <span @click="laplaceProcess">Лапласа</span>
+            <span @click="robertsProcess">Робертса</span>
+            <span @click="sobelProcess">Собела</span>
+            <span @click="uallasProcess">Уоллеса</span>
+            <span @click="statisticsMethodProcess">Статистический метод</span>
           </div>
         </div></li>
     </ul>
